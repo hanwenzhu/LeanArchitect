@@ -142,7 +142,7 @@ The supported options of `@[blueprint]` are:
   (hasProof := true)        -- If the node has a proof part (default: true if the node is a theorem)
   (proof := /-- ... -/)     -- The proof of the node in LaTeX (default: the docstrings in proof tactics)
   (uses := [a, "b"])        -- The dependencies of the node, as Lean constants or LaTeX labels (default: inferred)
-  (proofUses := [a, b])     -- The dependencies of the proof of the node, as Lean constants or LaTeX labels (default: inferred)
+  (proofUses := [a, "b"])   -- The dependencies of the proof of the node, as Lean constants or LaTeX labels (default: inferred)
   (title := "Title")        -- The title of the node in LaTeX
   (notReady := true)        -- Whether the node is not ready
   (discussion := 123)       -- The discussion issue number of the node
@@ -238,7 +238,7 @@ The output will be in `.lake/build/blueprint`.
   \usepackage{fvextra}
   ```
 
-  to `blueprint/src/macros/print.tex`.
+  to `blueprint/src/macros/print.tex`. These are automatic if you use `blueprintConvert`.
 
 ## TODO
 
