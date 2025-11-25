@@ -44,6 +44,10 @@ class Node(BaseSchema):
     def uses(self) -> set[str]:
         return self.statement.uses | (self.proof.uses if self.proof is not None else set())
 
+    @property
+    def lean_ok(self) -> bool:
+        return self.statement.lean_ok and (self.proof is None or self.proof.lean_ok)
+
     def to_lean_attribute(
         self,
         add_statement_text: bool = True, add_uses: bool = True,

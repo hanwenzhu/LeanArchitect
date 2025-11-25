@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from loguru import logger
+from pydantic import BaseModel
 
 from common import Node, NodePart, _quote
 
@@ -76,9 +77,8 @@ def parse_and_remove_blueprint_commands(source: str) -> tuple[SourceInfo, str]:
     # \label
     # We only look for \label in the outermost environment because inner environments may have their own labels.
     def remove_environments(source: str) -> str:
-        # Note: this is only approximate, e.g. it does not handle nested same environments correctly
+        # TODO: this is only approximate, e.g. it does not handle nested same environments correctly
         return re.sub(r"\\begin\s*\{(.*?)\}.*?\\end\s*\{\1\}", r"", source, flags=re.DOTALL)
-    # TODO: label should be handled separately, because it may appear multiple times in nested environments
     label, _ = find_and_remove_command_argument("label", remove_environments(source))
     source = source.replace(f"\\label{{{label}}}", "")  # remove \label from source manually
     # plastexdepgraph commands
@@ -115,13 +115,20 @@ def try_int(s: Optional[str]) -> Optional[int]:
 
 
 warned_verb = False
-def process_source(source: str):
+def process_source(source: str) -> tuple[SourceInfo, str]:
+    source_info, source = parse_and_remove_blueprint_commands(source)
     global warned_verb
     if "\\verb" in source and not warned_verb:
         warned_verb = True
         logger.warning("Converting \\verb to \\Verb which is friendlier to macros.")
     source = source.replace("\\verb", "\\Verb")
-    return parse_and_remove_blueprint_commands(source)
+    return source_info, source
+
+
+class LatexSource(BaseModel):
+    """The source codes of a node in the original LaTeX blueprint."""
+    statements: list[str] = []
+    proofs: list[str] = []
 
 
 # NB: this is not used if --convert_informal is not set
@@ -138,7 +145,7 @@ def generate_new_lean_name(visited_names: set[str], base: Optional[str]) -> str:
     return generate_new_lean_name(visited_names, f"{base}_{uuid.uuid4().hex}")
 
 
-def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[str, list[str]], dict[str, list[Node]]]:
+def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[str, LatexSource]]:
     """Parse the nodes in the LaTeX source."""
     match = re.search(r"\\usepackage\s*\[[^\]]*\bthms\s*=\s*([^,\]\}]*)", source)
     if match:
@@ -152,15 +159,18 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
     )
 
     # Maps matches[i] to nodes
-    match_idx_to_label: dict[int, str] = {}
+    match_idx_to_label: dict[int, Optional[str]] = {}
 
     # Parsed nodes
     nodes: list[Node] = []
     seen_lean_names: set[str] = set()
     seen_latex_labels: set[str] = set()
 
-    # Raw sources of each name, for modifying LaTeX later
-    latex_label_to_raw_sources: dict[str, list[str]] = {}
+    # Maps LaTeX label to a canonical label, if two nodes have different \label but the same \lean
+    label_alias: dict[str, str] = {}
+
+    # Raw sources (statements, proofs) of each name, for modifying LaTeX later
+    label_to_source: dict[str, LatexSource] = {}
 
     # Parse all theorem and definition statements
     for i, match in enumerate(ENV_PATTERN.finditer(source)):
@@ -172,17 +182,17 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
         if "%" in source[:match.span()[0]].split("\n")[-1].strip():
             continue
 
-        source_info, node_source = parse_and_remove_blueprint_commands(content)
+        source_info, node_source = process_source(content)
 
         label = source_info.label
-        if label is None:
-            logger.warning(f"Did not find a LaTeX \\label for the node with \\lean{{{', '.join(source_info.lean or [])}}}; ignoring.")
-            continue
         match_idx_to_label[i] = label
+        if label is None:
+            logger.warning(f"Ignoring node without \\label: {match.group(0)[:30]}...")
+            continue
         if label in seen_latex_labels:
-            logger.warning(f"\\label{{{label}}} appears multiple times in the blueprint; merging.")
+            logger.warning(f"Merging nodes with \\label{{{label}}} which occur in blueprint multiple times")
         seen_latex_labels.add(label)
-        latex_label_to_raw_sources.setdefault(label, []).append(match.group(0))
+        label_to_source.setdefault(label, LatexSource()).statements.append(match.group(0))
 
         if source_info.lean is not None:
             names = source_info.lean
@@ -194,7 +204,12 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
 
         for name in names:
             if name in seen_lean_names:
-                logger.warning(f"\\lean{{{name}}} occurs in blueprint multiple times; only keeping the first.")
+                for seen in nodes:
+                    if seen.name == name:
+                        logger.warning(f"Merging {seen.latex_label} and {label} which both have \\lean{{{name}}}")
+                        seen.statement.uses |= set(source_info.uses)
+                        label_alias[label] = seen.latex_label
+                        label_to_source[seen.latex_label].statements.extend(label_to_source[label].statements)
                 continue
             seen_lean_names.add(name)
             statement = NodePart(
@@ -228,20 +243,29 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
         if "%" in source[:match.span()[0]].split("\n")[-1].strip():
             continue
 
-        source_info, node_source = parse_and_remove_blueprint_commands(content)
+        source_info, node_source = process_source(content)
         proves = source_info.proves
         if proves is not None:  # manually specified \proves in plastexdepgraph
             proved_label = proves
         else:
             if i - 1 in match_idx_to_label:
                 proved_label = match_idx_to_label[i - 1]
+                if proved_label is None:
+                    continue
             else:
                 logger.warning(f"Cannot determine the statement proved by: {node_source}")
                 continue
-        latex_label_to_raw_sources[proved_label].append(match.group(0))
+        if proved_label in label_alias:
+            proved_label = label_alias[proved_label]
+
+        label_to_source[proved_label].proofs.append(match.group(0))
 
         if proved_label in label_to_nodes:
             for proved in label_to_nodes[proved_label]:
+                if proved.proof is not None:
+                    logger.warning(f"Proof of {proved_label} occurs in blueprint multiple times; merging.")
+                    proved.proof.uses |= set(source_info.uses)
+                    continue
                 proved.proof = NodePart(
                     lean_ok=source_info.leanok,
                     text=node_source,
@@ -249,7 +273,16 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
                     latex_env=env
                 )
 
-    return nodes, latex_label_to_raw_sources, label_to_nodes
+    # Clear self-loops
+    for node in nodes:
+        node.statement.uses.discard(node.latex_label)
+        if node.proof is not None:
+            node.proof.uses.discard(node.latex_label)
+
+    # Duplicate names should have been merged above
+    assert len(set(n.name for n in nodes)) == len(nodes), "Duplicate Lean names in nodes found"
+
+    return nodes, label_to_source
 
 
 def get_bibliography_files(source: str) -> list[Path]:

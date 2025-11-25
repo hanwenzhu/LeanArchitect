@@ -2,7 +2,7 @@
 
 from pathlib import Path
 import re
-from typing import Optional, Literal
+from typing import Generator, Optional, Literal
 
 from loguru import logger
 
@@ -50,7 +50,10 @@ def insert_attributes(decl: str, new_attr: str) -> str:
             decl = decl.replace(match.group(0), "", 1)
         else:
             attrs = new_attr
-        return f"to_additive (attr := {attrs}) {decl}"
+        if decl:
+            return f"to_additive (attr := {attrs}) {decl}"
+        else:
+            return f"to_additive (attr := {attrs})"
 
     # open ... in, omit ... in, include ... in, etc (assuming one-line, ending in newline, no interfering comments, etc)
     match = re.search(r"^(?:[a-zA-Z_]+.*? in\n)+", decl)
@@ -93,8 +96,21 @@ def modify_source(
         docstring_indent=docstring_indent, docstring_style=docstring_style
     )
     decl = insert_attributes(decl, attr)
+
     if prepend is not None:
+        # Special cases:
+        # pre = "...@[", decl = "to_additive..."
+        if pre.endswith("@[") and decl.startswith("to_additive"):
+            pre = pre.removesuffix("@[")
+            decl = "@[" + decl
+        # pre = "...(open|variable|...) ... in"
+        match = re.search(r"\n((?:[a-zA-Z_]+.*? in\n)+)$", pre)
+        if match:
+            pre = pre.removesuffix(match.group(1))
+            decl = match.group(1) + decl
+        # Add prepend to between pre and decl
         decl = "".join(p + "\n\n" for p in prepend) + decl
+
     file.write_text(pre + decl + post)
 
 
@@ -112,24 +128,24 @@ def add_lean_architect_import(file: Path):
     file.write_text(source)
 
 
-def topological_sort(data: list[tuple[NodeWithPos, str]]) -> list[tuple[NodeWithPos, str]]:
-    name_to_node: dict[str, tuple[NodeWithPos, str]] = {node.name: (node, value) for node, value in data}
+def topological_sort(nodes: list[NodeWithPos]) -> list[NodeWithPos]:
+    name_to_node: dict[str, NodeWithPos] = {node.name: node for node in nodes}
 
     visited: set[str] = set()
-    result: list[tuple[NodeWithPos, str]] = []
+    result: list[NodeWithPos] = []
 
     def visit(name: str):
         if name in visited:
             return
         visited.add(name)
 
-        node, value = name_to_node[name]
-        for used in node.uses:
-            if used in name_to_node:
-                visit(used)
-        result.append((node, value))
+        node = name_to_node[name]
+        for other in nodes:
+            if other.latex_label in node.uses:
+                visit(other.name)
+        result.append(node)
 
-    for node, _ in data:
+    for node in nodes:
         visit(node.name)
 
     return result
@@ -137,9 +153,15 @@ def topological_sort(data: list[tuple[NodeWithPos, str]]) -> list[tuple[NodeWith
 
 def write_blueprint_attributes(
     nodes: list[NodeWithPos], modules: list[str], root_file: str,
-    convert_informal: bool, add_uses: bool,
-    docstring_indent: int, docstring_style: Literal["hanging", "compact"]
-):
+    convert_informal: bool, convert_upstream: bool,
+    add_uses: bool, docstring_indent: int, docstring_style: Literal["hanging", "compact"]
+) -> list[NodeWithPos]:
+
+    def is_upstream(node: NodeWithPos) -> bool:
+        return node.location is not None and not any(node.location.module.split(".")[0] == module for module in modules)
+    def is_informal(node: NodeWithPos) -> bool:
+        return node.location is None
+
     # Sort nodes by reverse position, so that we can modify later declarations first
     nodes_location_order = sorted(
         nodes,
@@ -147,21 +169,12 @@ def write_blueprint_attributes(
             (n.location.module, n.location.range.pos.line) if n.location is not None else ("", 0),
         reverse=True
     )
-    nodes_topological_order = [n for n, _ in topological_sort([(n, "") for n in nodes])]
+    nodes_topological_order = topological_sort(nodes)
 
     # For upstream nodes and informal-only nodes, they are rendered as `attribute [blueprint] node_name` and
     # `theorem node_name : (sorry_using [uses] : Prop) := by sorry_using [uses]` respectively,
     # and prepended to normal nodes that directly depend on them.
     # If no such normal node exists, the upstream node is added to the root file.
-
-    # Mapping from normal node to strings that should be prepended to it.
-    prepends: dict[str, list[str]] = {n.name: [] for n in nodes}
-    # The extra Lean source to be inserted somewhere in the project,
-    # containing (1) upstream nodes and (2) informal-only nodes,
-    # that are not directly used by any normal node in the blueprint
-    extra_nodes: list[str] = []
-    def is_upstream_or_informal(node: NodeWithPos) -> bool:
-        return node.location is None or not any(node.location.module.split(".")[0] == module for module in modules)
     def upstream_or_informal_to_lean(node: NodeWithPos) -> str:
         if node.location is not None:
             return f"attribute [{node.to_lean_attribute(add_uses=False, add_proof_uses=False, docstring_indent=docstring_indent, docstring_style=docstring_style)}]\n  {node.name}"
@@ -183,45 +196,76 @@ def write_blueprint_attributes(
                 f"attribute [{node.to_lean_attribute(add_uses=False, add_proof_uses=False, docstring_indent=docstring_indent, docstring_style=docstring_style)}]\n  {node.name}"
             )
             return ""
+
+    # Mapping from node to nodes that should be prepended to it.
+    prepends: dict[str, list[NodeWithPos]] = {n.name: [] for n in nodes}
+    # The extra Lean source to be inserted into the root file,
+    # containing (1) upstream nodes and (2) informal-only nodes,
+    # whose positions cannot be determined.
+    extra_nodes: list[NodeWithPos] = []
+
+    # Prepend every upstream or informal node to the first node that uses it
     for node in nodes_topological_order:
-        if is_upstream_or_informal(node):
-            for normal_node in nodes_topological_order[nodes_topological_order.index(node):]:
-                if not is_upstream_or_informal(normal_node) and node.name in normal_node.uses:
-                    prepends[normal_node.name].append(upstream_or_informal_to_lean(node))
+        if (convert_upstream and is_upstream(node)) or (convert_informal and is_informal(node)):
+            for other in nodes_topological_order:
+                # Prepend to node that uses the upstream/informal node and is formalized without `sorry`
+                # The reason for the latter is that, if the upstream node is inserted where it is not
+                # used, the module containing the upstream node might not be imported, causing "unknown constant" errors
+                if node.latex_label in other.uses and other.lean_ok:
+                    prepends[other.name].append(node)
                     break
             else:
-                extra_nodes.append(upstream_or_informal_to_lean(node))
+                extra_nodes.append(node)
+
+    # All nodes that should be prepended to the given node.
+    def all_prepends(node: NodeWithPos) -> Generator[NodeWithPos, None, None]:
+        if node.name in prepends:
+            for n in prepends[node.name]:
+                yield from all_prepends(n)
+                yield n
 
     # Main loop for adding @[blueprint] attributes to nodes
     modified_files: set[str] = set()
+    modified_nodes: list[NodeWithPos] = []
 
     for node in nodes_location_order:
-        if is_upstream_or_informal(node):
+        if is_upstream(node) or is_informal(node):
             continue
         assert node.has_lean and node.file is not None and node.location is not None
+        prepend_nodes = list(all_prepends(node))
         modify_source(
             node, Path(node.file), node.location, add_uses=add_uses,
             docstring_indent=docstring_indent, docstring_style=docstring_style,
-            prepend=prepends[node.name]
+            prepend=list(upstream_or_informal_to_lean(n) for n in prepend_nodes)
         )
         modified_files.add(node.file)
-
-    for file in modified_files:
-        add_lean_architect_import(Path(file))
+        modified_nodes.append(node)
+        modified_nodes.extend(prepend_nodes)
 
     # Write extra nodes to the root file
     if extra_nodes:
+        extra_nodes_lean = [upstream_or_informal_to_lean(n) for n in extra_nodes]
         extra_nodes_file = Path(root_file)
         logger.warning(
             f"Outputting some nodes to\n  {extra_nodes_file}\n" +
             "You may want to move them to appropriate locations."
         )
-        imports = "import Architect"
         if extra_nodes_file.exists():
             existing = extra_nodes_file.read_text()
         else:
             existing = ""
         extra_nodes_file.write_text(
-            existing + imports + "\n\n" +
-            "\n\n".join(lean for lean in extra_nodes) + "\n"
+            existing + "\n\n" +
+            "\n\n".join(lean for lean in extra_nodes_lean) + "\n"
         )
+
+        modified_files.add(root_file)
+        modified_nodes.extend(extra_nodes)
+
+    for file in modified_files:
+        add_lean_architect_import(Path(file))
+
+    # This should not be possible in the code above, assuming `nodes` has unique names
+    assert len(set(n.name for n in modified_nodes)) == len(modified_nodes), "Duplicate nodes in modified_nodes"
+
+    return modified_nodes

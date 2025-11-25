@@ -185,11 +185,15 @@ lake script run blueprintConvert
 
 Note that this conversion is not idempotent, and for large projects it occasionally ends in some small syntax errors.
 
-The informal-only nodes (nodes without `\lean`) are by default retained in LaTeX and not converted to Lean. If you want them to be converted, you may add `--convert_informal` to the command above, and then the script will convert them and save to the root Lean module.
+Please attend to the warnings in the output of the conversion script above. They might be caused by an incomplete or nonstandard blueprint and may cause further problems in the pipeline.
+
+Informal-only nodes (nodes without `\lean`) are by default not converted to Lean. You may add `--convert_informal` to the command above to convert them.
 
 The conversion will remove the `\uses` information in LaTeX and let LeanArchitect automatically infer dependencies in Lean, unless the code contains `sorry` (in which case `uses :=` and `proofUses :=` will be added). If `--add_uses` is specified then all `\uses` information is retained in Lean.
 
-You may use `--blueprint_root <root>` to specify the path to your blueprint, if it is not the default. See `lake script run blueprintConvert -h` for all options.
+You may use `--blueprint_root <root>` to specify the path to your blueprint, if it is not the default.
+
+See `lake script run blueprintConvert -h` for all options.
 
 ## GitHub Actions integration
 

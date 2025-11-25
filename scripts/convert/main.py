@@ -100,7 +100,7 @@ def main():
 
     # Parse the document into nodes in dependency graph
     logger.info("Parsing nodes in blueprint LaTeX")
-    nodes, latex_label_to_raw_sources, label_to_nodes = parse_nodes(source, args.convert_informal)
+    nodes, label_to_raw_source = parse_nodes(source, args.convert_informal)
     if args.nodes:
         nodes = [node for node in nodes if node.latex_label in args.nodes]
 
@@ -140,11 +140,15 @@ def main():
 
     # Write the blueprint attributes to Lean files
     logger.info("Writing @[blueprint] attributes to Lean files")
-    write_blueprint_attributes(nodes_with_pos, args.modules, args.root_file, args.convert_informal, args.add_uses, args.docstring_indent, args.docstring_style)
+    modified_nodes = write_blueprint_attributes(
+        nodes_with_pos, args.modules, args.root_file,
+        args.convert_informal, True,  # Always convert upstream nodes
+        args.add_uses, args.docstring_indent, args.docstring_style
+    )
 
     # Write to LaTeX source
     logger.info("Replacing LaTeX nodes with \\inputleannode")
-    write_latex_source(nodes_with_pos, latex_label_to_raw_sources, blueprint_root, args.convert_informal, args.libraries)
+    write_latex_source(modified_nodes, label_to_raw_source, blueprint_root, args.libraries)
 
 
 if __name__ == "__main__":

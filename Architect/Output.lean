@@ -77,6 +77,9 @@ def NodeWithPos.toLatex (node : NodeWithPos) : m Latex := do
     addLatex := addLatex ++ "\\notready\n"
   if let some d := node.discussion then
     addLatex := addLatex ++ "\\discussion{" ++ toString d ++ "}\n"
+  if let some location := node.location then
+    if [`Init, `Lean, `Std, `Batteries, `Mathlib].any fun pre => pre.isPrefixOf location.module then
+      addLatex := addLatex ++ "\\mathlibok\n"
 
   -- position string as annotation
   let posStr := match node.file, node.location with
