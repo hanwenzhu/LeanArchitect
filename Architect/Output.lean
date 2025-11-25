@@ -1,5 +1,4 @@
 import Architect.Content
-import MD4Lean
 
 
 open Lean
