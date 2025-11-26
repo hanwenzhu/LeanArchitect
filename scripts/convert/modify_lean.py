@@ -39,7 +39,7 @@ def insert_attributes(decl: str, new_attr: str) -> str:
             warned_to_additive = True
             logger.warning(
                 "Encountered additive declaration(s) generated from @[to_additive]. You may decide to:\n"
-                "- (Current) Add both to the same node in the blueprint by `@[to_additive (attr := blueprint)]`\n"
+                "- (Current) Add both to the same node in the blueprint by `@[to_additive (attr := blueprint \"label\")]`\n"
                 "- Add only the additive declaration in the blueprint by `attribute [blueprint] additive_name`\n"
                 "- Add only the multiplicative declaration in the blueprint by `@[to_additive, blueprint]`"
             )
@@ -205,6 +205,7 @@ def write_blueprint_attributes(
     extra_nodes: list[NodeWithPos] = []
 
     # Prepend every upstream or informal node to the first node that uses it
+    # Every upstream/informal node should occur exactly once in prepends or extra_nodes
     for node in nodes_topological_order:
         if (convert_upstream and is_upstream(node)) or (convert_informal and is_informal(node)):
             for other in nodes_topological_order:
@@ -239,28 +240,31 @@ def write_blueprint_attributes(
             prepend=list(upstream_or_informal_to_lean(n) for n in prepend_nodes)
         )
         modified_files.add(node.file)
-        modified_nodes.append(node)
         modified_nodes.extend(prepend_nodes)
+        modified_nodes.append(node)
 
     # Write extra nodes to the root file
     if extra_nodes:
-        extra_nodes_lean = [upstream_or_informal_to_lean(n) for n in extra_nodes]
         extra_nodes_file = Path(root_file)
         logger.warning(
             f"Outputting some nodes to\n  {extra_nodes_file}\n" +
             "You may want to move them to appropriate locations."
         )
         if extra_nodes_file.exists():
-            existing = extra_nodes_file.read_text()
+            root_content = extra_nodes_file.read_text()
         else:
-            existing = ""
-        extra_nodes_file.write_text(
-            existing + "\n\n" +
-            "\n\n".join(lean for lean in extra_nodes_lean) + "\n"
-        )
+            root_content = ""
+
+        for node in extra_nodes:
+            prepend_nodes = list(all_prepends(node))
+            for n in prepend_nodes:
+                root_content += "\n" + upstream_or_informal_to_lean(n) + "\n"
+            root_content += "\n" + upstream_or_informal_to_lean(node) + "\n"
+            modified_nodes.extend(prepend_nodes)
+            modified_nodes.append(node)
+        extra_nodes_file.write_text(root_content)
 
         modified_files.add(root_file)
-        modified_nodes.extend(extra_nodes)
 
     for file in modified_files:
         add_lean_architect_import(Path(file))
