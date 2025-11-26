@@ -284,7 +284,7 @@ def outputJsonResults (basePath : System.FilePath) (module : Name) (json : Json)
 def outputLibraryLatex (basePath : System.FilePath) (library : Name) (modules : Array Name) : IO Unit := do
   FS.createDirAll basePath
   let latex : Latex := "\n\n".intercalate
-    (modules.map fun mod => "\\input{" ++ (basePath / moduleToRelPath mod "tex").toString ++ "}").toList
+    (modules.map fun mod => Latex.input (basePath / moduleToRelPath mod "tex")).toList
   let filePath := basePath / libraryToRelPath library "tex"
   if let some d := filePath.parent then FS.createDirAll d
   FS.writeFile filePath latex
