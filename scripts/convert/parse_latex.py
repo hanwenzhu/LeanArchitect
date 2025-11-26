@@ -114,17 +114,6 @@ def try_int(s: Optional[str]) -> Optional[int]:
         return None
 
 
-warned_verb = False
-def process_source(source: str) -> tuple[SourceInfo, str]:
-    source_info, source = parse_and_remove_blueprint_commands(source)
-    global warned_verb
-    if "\\verb" in source and not warned_verb:
-        warned_verb = True
-        logger.warning("Converting \\verb to \\Verb which is friendlier to macros.")
-    source = source.replace("\\verb", "\\Verb")
-    return source_info, source
-
-
 class LatexSource(BaseModel):
     """The source codes of a node in the original LaTeX blueprint."""
     statements: list[str] = []
@@ -182,7 +171,7 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
         if "%" in source[:match.span()[0]].split("\n")[-1].strip():
             continue
 
-        source_info, node_source = process_source(content)
+        source_info, node_source = parse_and_remove_blueprint_commands(content)
 
         label = source_info.label
         match_idx_to_label[i] = label
@@ -243,7 +232,7 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
         if "%" in source[:match.span()[0]].split("\n")[-1].strip():
             continue
 
-        source_info, node_source = process_source(content)
+        source_info, node_source = parse_and_remove_blueprint_commands(content)
         proves = source_info.proves
         if proves is not None:  # manually specified \proves in plastexdepgraph
             proved_label = proves
@@ -253,7 +242,7 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
                 if proved_label is None:
                     continue
             else:
-                logger.warning(f"Cannot determine the statement proved by: {node_source}")
+                logger.warning(f"Cannot determine the statement proved by: {node_source[:50]}...")
                 continue
         if proved_label in label_alias:
             proved_label = label_alias[proved_label]

@@ -26,8 +26,8 @@ def runSingleCmd (p : Parsed) : IO UInt32 := do
     let json ← jsonOfImportModule module options.toOptions
     outputJsonResults baseDir module json
   else
-    let latex ← latexOfImportModule module options.toOptions
-    outputLatexResults baseDir module latex
+    let latexOutput ← latexOutputOfImportModule module options.toOptions
+    discard <| outputLatexResults baseDir module latexOutput
   return 0
 
 def runIndexCmd (p : Parsed) : IO UInt32 := do

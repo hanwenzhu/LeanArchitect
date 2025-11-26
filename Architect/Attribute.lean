@@ -137,18 +137,6 @@ def elabBlueprintConfig : Syntax → CoreM Config
 def hasProof (name : Name) (cfg : Config) : CoreM Bool := do
   return cfg.hasProof.getD (cfg.proof.isSome || wasOriginallyTheorem (← getEnv) name)
 
-def checkLatex (text : String) : CoreM Unit := do
-  if text.replace "\\verb" "\\Verb" != text then
-    logWarning "`\\verb` is discouraged in LeanArchitect. Please use `\\Verb` instead.
-
-Make sure to add the following to blueprint/src/macros/web.tex:
-
-\\providecommand{\\Verb}{\\verb}
-
-and to blueprint/src/macros/print.tex:
-
-\\usepackage{fvextra}"
-
 def mkStatementPart (_name : Name) (latexLabel : String) (cfg : Config) (hasProof : Bool) (used : NameSet) :
     CoreM NodePart := do
   let env ← getEnv
@@ -158,7 +146,6 @@ def mkStatementPart (_name : Name) (latexLabel : String) (cfg : Config) (hasProo
   let usesLabels : Std.HashSet String := .ofArray <|
     uses.toArray.filterMap fun c => (blueprintExt.find? env c).map (·.latexLabel)
   let statement := cfg.statement.getD ""
-  checkLatex statement
   return {
     leanOk
     text := statement
@@ -175,7 +162,6 @@ def mkProofPart (name : Name) (latexLabel : String) (cfg : Config) (used : NameS
     uses.toArray.filterMap fun c => (blueprintExt.find? env c).map (·.latexLabel)
   -- Use proof docstring for proof text
   let proof := cfg.proof.getD ("\n\n".intercalate (getProofDocString env name).toList)
-  checkLatex proof
   return {
     leanOk
     text := proof

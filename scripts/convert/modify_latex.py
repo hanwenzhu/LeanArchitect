@@ -38,29 +38,28 @@ def write_latex_source(
     else:
         logger.warning(f"{macros_files_common[0]} not found; please add the following to anywhere in the start of LaTeX blueprint:\n{common_macros}")
 
-    macros_files_print = [
-        blueprint_root / "macros" / "print.tex",
-        blueprint_root / "preamble" / "print.tex",
-        blueprint_root / "macro" / "print.tex",
-    ]
-    print_macros = "\\usepackage{fvextra}"
-    for file in macros_files_print:
-        if file.exists():
-            file.write_text(file.read_text() + "\n" + print_macros + "\n")
-            break
-    else:
-        logger.warning(f"{macros_files_print[0]} not found; please add the following to the macros file for print.tex:\n{print_macros}")
+    # macros_files_print = [
+    #     blueprint_root / "macros" / "print.tex",
+    #     blueprint_root / "preamble" / "print.tex",
+    #     blueprint_root / "macro" / "print.tex",
+    # ]
+    # print_macros = ""
+    # for file in macros_files_print:
+    #     if file.exists():
+    #         file.write_text(file.read_text() + "\n" + print_macros + "\n")
+    #         break
+    # else:
+    #     logger.warning(f"{macros_files_print[0]} not found; please add the following to the macros file for print.tex:\n{print_macros}")
 
-    macros_files_web = [
-        blueprint_root / "macros" / "web.tex",
-        blueprint_root / "preamble" / "web.tex",
-        blueprint_root / "macro" / "web.tex",
-    ]
-    # NB: \Verb is not defined in plasTeX
-    web_macros = "\\providecommand{\\Verb}{\\verb}"
-    for file in macros_files_web:
-        if file.exists():
-            file.write_text(file.read_text() + "\n" + web_macros + "\n")
-            break
-    else:
-        logger.warning(f"{macros_files_web[0]} not found; please add the following to the macros file for web.tex:\n{web_macros}")
+    # macros_files_web = [
+    #     blueprint_root / "macros" / "web.tex",
+    #     blueprint_root / "preamble" / "web.tex",
+    #     blueprint_root / "macro" / "web.tex",
+    # ]
+    # web_macros = ""
+    # for file in macros_files_web:
+    #     if file.exists():
+    #         file.write_text(file.read_text() + "\n" + web_macros + "\n")
+    #         break
+    # else:
+    #     logger.warning(f"{macros_files_web[0]} not found; please add the following to the macros file for web.tex:\n{web_macros}")

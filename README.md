@@ -228,31 +228,30 @@ lake build :blueprintJson
 
 The output will be in `.lake/build/blueprint`.
 
-## Miscellaneous
+## Details
 
-- You should use `\Verb` for inline verbatim code instead of `\verb`, and avoid using `\begin{verbatim}`. This is because `\Verb` from `fvextra` has better support when used inside macros. You also need to add
+### Multiple Lean declarations
 
-  ```latex
-  \providecommand{\Verb}{\verb}
-  ```
+Multiple Lean declarations may correspond to the same node in the blueprint, by specifying the same label as:
 
-  to `blueprint/src/macros/web.tex` and
+```lean
+@[blueprint "thm:a"] theorem a_part_one : ...
+@[blueprint "thm:a"] theorem a_part_two : ...
+```
 
-  ```latex
-  \usepackage{fvextra}
-  ```
+The output will use `\lean{a_part_one, a_part_two}`, and `\leanok` only if both `a_part_one` and `a_part_two` are sorryless, and the `\uses` will also be merged.
 
-  to `blueprint/src/macros/print.tex`. These are automatic if you use `blueprintConvert`.
+A special case is for `to_additive` pairs of theorems:
 
-- Multiple Lean declarations may correspond to the same node in the blueprint, by
-  specifying the same label as:
+```lean
+@[to_additive (attr := blueprint "thm:b")] theorem b_mul : ...
+```
 
-  ```lean
-  @[blueprint "thm:a"] theorem a_part_one : ...
-  @[blueprint "thm:a"] theorem a_part_two : ...
-  ```
+should produce a single node with `lean{b_mul, b_add}`.
 
-  The output will use `\lean{a_part_one, a_part_two}`, and `\leanok` only if both `a_part_one` and `a_part_two` are sorryless, and the `\uses` will also be merged.
+### Weird highlight in VS Code
+
+If you notice the syntax highlighting makes entire blocks of Lean code a wrong color, it is likely that somewhere in a LaTeX comment there is something like `<a` which is parsed by VS Code as an HTML tag. Simply change it to `< a` and the highlights should then be fixed.
 
 ## TODO
 
