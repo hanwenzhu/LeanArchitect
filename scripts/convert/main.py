@@ -83,6 +83,8 @@ def main():
 
     args = parser.parse_args()
 
+    logger.info("Converting blueprint to LeanArchitect format")
+
     # Determine blueprint root directory
     if args.blueprint_root is None:
         blueprint_root = Path("blueprint", "src")

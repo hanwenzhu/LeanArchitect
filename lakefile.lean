@@ -101,11 +101,9 @@ script blueprintConvert (args : List String) do
     IO.eprintln "No root modules found for any library"
     return 1
   else  -- this else is needed for rootMods[0] to work
-  IO.eprintln "Building libraries"
   for lib in libs do
     runCmd (← getLake).toString #["build", lib.name.toString]
   let leanOptions := Lean.toJson (← getRootPackage).leanOptions |>.compress
-  IO.eprintln "Calling Python script to convert blueprint to LeanArchitect format"
   runCmd "python3" <|
     #[convertScript.toString] ++
     #["--libraries"] ++ libs.map (·.name.toString) ++

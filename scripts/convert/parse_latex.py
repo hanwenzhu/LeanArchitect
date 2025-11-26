@@ -72,6 +72,25 @@ def strip_empty_lines(text: str) -> str:
     return text
 
 
+def remove_bracketed_prefix(source: str) -> tuple[Optional[str], str]:
+    if re.match(r"^[ \t]*\n?[ \t]*\[", source):
+        source = source.lstrip().removeprefix("[")
+        bracketed = ""
+        depth = 1
+        i = 0
+        for i, char in enumerate(source):
+            if char == "[":
+                depth += 1
+            elif char == "]":
+                depth -= 1
+            if depth == 0:
+                break
+            bracketed += char
+        return bracketed.strip(), source[i + 1:]
+    else:
+        return None, source
+
+
 def parse_and_remove_blueprint_commands(source: str) -> tuple[SourceInfo, str]:
     """Parse and remove custom commands (\\label, plastexdepgraph, leanblueprint commands)."""
     # \label
@@ -143,7 +162,7 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
         depgraph_thm_types = "definition+lemma+proposition+theorem+corollary".split("+")
 
     ENV_PATTERN = re.compile(
-        r"\\begin\s*\{(" + "|".join(depgraph_thm_types + ["proof"]) + r")\}\s*(?:\[(.*?)\])?(.*?)\\end\s*\{\1\}",
+        r"\\begin\s*\{(" + "|".join(depgraph_thm_types + ["proof"]) + r")\}(.*?)\\end\s*\{\1\}",
         re.DOTALL
     )
 
@@ -163,7 +182,7 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
 
     # Parse all theorem and definition statements
     for i, match in enumerate(ENV_PATTERN.finditer(source)):
-        env, title, content = match.groups()
+        env, content = match.groups()
 
         if env not in depgraph_thm_types:
             continue
@@ -171,6 +190,7 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
         if "%" in source[:match.span()[0]].split("\n")[-1].strip():
             continue
 
+        title, content = remove_bracketed_prefix(content)
         source_info, node_source = parse_and_remove_blueprint_commands(content)
 
         label = source_info.label
@@ -224,7 +244,7 @@ def parse_nodes(source: str, convert_informal: bool) -> tuple[list[Node], dict[s
 
     # Parse all proof statements
     for i, match in enumerate(ENV_PATTERN.finditer(source)):
-        env, title, content = match.groups()
+        env, content = match.groups()
 
         if env != "proof":
             continue
