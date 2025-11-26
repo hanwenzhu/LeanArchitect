@@ -39,7 +39,7 @@ def insert_attributes(decl: str, new_attr: str) -> str:
             warned_to_additive = True
             logger.warning(
                 "Encountered additive declaration(s) generated from @[to_additive]. You may decide to:\n"
-                "- (Current) Add both in the blueprint by `@[to_additive (attr := blueprint)]`\n"
+                "- (Current) Add both to the same node in the blueprint by `@[to_additive (attr := blueprint)]`\n"
                 "- Add only the additive declaration in the blueprint by `attribute [blueprint] additive_name`\n"
                 "- Add only the multiplicative declaration in the blueprint by `@[to_additive, blueprint]`"
             )

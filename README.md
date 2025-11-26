@@ -247,7 +247,7 @@ A special case is for `to_additive` pairs of theorems:
 @[to_additive (attr := blueprint "thm:b")] theorem b_mul : ...
 ```
 
-should produce a single node with `lean{b_mul, b_add}`.
+should produce a single node with `\lean{b_mul, b_add}`.
 
 ### Weird highlight in VS Code
 
