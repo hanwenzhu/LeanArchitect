@@ -220,8 +220,8 @@ private def moduleToLatexOutputAux (module : Name) (contents : Array BlueprintCo
   return { header, artifacts }
 
 /-- Convert imported module to LaTeX (header file, artifact files). -/
-def moduleToLatexOutput (module : Name) : CoreM LatexOutput := do
-  let contents ← getBlueprintContents module
+def moduleToLatexOutput (module : Name) (all : Bool := false) : CoreM LatexOutput := do
+  let contents ← getBlueprintContents module all
   moduleToLatexOutputAux module contents
 
 /-- Convert current module to LaTeX (header file, artifact files). -/
@@ -286,9 +286,9 @@ def BlueprintContent.toJson : BlueprintContent → Json
   | .node n => json% {"type": "node", "data": $(n.toJson)}
   | .modDoc d => json% {"type": "moduleDoc", "data": $(d.doc)}
 
-def moduleToJson (module : Name) : CoreM Json := do
+def moduleToJson (module : Name) (all : Bool := false) : CoreM Json := do
   return Json.arr <|
-    (← getBlueprintContents module).map BlueprintContent.toJson
+    (← getBlueprintContents module all).map BlueprintContent.toJson
 
 def mainModuleToJson : CoreM Json := do
   return Json.arr <|

@@ -2,7 +2,7 @@ import Architect.Basic
 import Architect.Command
 
 
-open Lean Elab
+open Lean Elab Meta
 
 namespace Architect
 
@@ -33,19 +33,90 @@ def BlueprintContent.order (l r : BlueprintContent) : Bool :=
   | some _, none => true
   | _, _ => false
 
-/-- Get blueprint contents of the current module. -/
+/-- Whether a constant should be auto-included in the blueprint in `--all` mode.
+Uses the same filtering as Lean's `allowCompletion` (IDE completion, `exact?`, etc.)
+plus a declaration-ranges check (as in doc-gen4) to skip auto-generated declarations.
+Only includes theorems, definitions, and inductives. -/
+private def shouldAutoInclude (name : Name) : CoreM Bool := do
+  let env ← getEnv
+  -- Use Lean's canonical blacklist (isInternal, isAuxRecursor, isNoConfusion, isRec, isMatcher)
+  if !allowCompletion env name then return false
+  -- Skip private declarations
+  if isPrivateName name then return false
+  -- Skip if already tagged with @[blueprint]
+  if (blueprintExt.find? env name).isSome then return false
+  -- Skip declarations without source location (auto-generated, per doc-gen4)
+  if (← findDeclarationRangesCore? name).isNone then return false
+  -- Only include theorems, definitions, and inductives
+  return match env.find? name with
+    | some (.thmInfo _) => true
+    | some (.defnInfo _) => true
+    | some (.inductInfo _) => true
+    | _ => false
+
+/-- Create a default blueprint `Node` for a constant that was not explicitly tagged
+with `@[blueprint]`. Used in `--all` mode. Uses the doc-string as the statement text. -/
+private def mkDefaultNode (env : Environment) (name : Name) (docString : String := "") : Node :=
+  let isTheorem := match env.find? name with
+    | some (.thmInfo _) => true
+    | _ => false
+  {
+    name
+    latexLabel := name.toString
+    statement := {
+      text := docString
+      uses := #[]
+      excludes := #[]
+      usesLabels := #[]
+      excludesLabels := #[]
+      latexEnv := if isTheorem then "theorem" else "definition"
+    }
+    proof := if isTheorem then some {
+      text := ""
+      uses := #[]
+      excludes := #[]
+      usesLabels := #[]
+      excludesLabels := #[]
+      latexEnv := "proof"
+    } else none
+    notReady := false
+    discussion := none
+    title := none
+  }
+
+/-- Get auto-included blueprint nodes for constants in a specific module.
+Only enumerates constants belonging to the given module index — does not
+traverse the full environment. -/
+private def getAutoIncludedNodes (modIdx : ModuleIdx) : CoreM (Array BlueprintContent) := do
+  let env ← getEnv
+  let constNames := env.header.moduleData[modIdx.toNat]!.constNames
+  let mut nodes : Array BlueprintContent := #[]
+  let env ← getEnv
+  for name in constNames do
+    if ← shouldAutoInclude name then
+      let docString := (← findDocString? env name).getD ""
+      let node := mkDefaultNode env name docString
+      nodes := nodes.push (.node (← node.toNodeWithPos))
+  return nodes
+
+/-- Get blueprint contents of the current module.
+This is only used from `#show_blueprint` / `#show_blueprint_json` commands within a Lean file.
+The extraction executable uses `getBlueprintContents` for all modules, since it loads them
+as imports. -/
 def getMainModuleBlueprintContents : CoreM (Array BlueprintContent) := do
   let env ← getEnv
   let nodes ← (blueprintExt.getEntries env).toArray.mapM fun (_, node) => BlueprintContent.node <$> node.toNodeWithPos
   let modDocs := (getMainModuleBlueprintDoc env).toArray.map BlueprintContent.modDoc
   return (nodes ++ modDocs).qsort BlueprintContent.order
 
-/-- Get blueprint contents of an imported module. -/
-def getBlueprintContents (module : Name) : CoreM (Array BlueprintContent) := do
+/-- Get blueprint contents of an imported module.
+Only enumerates constants belonging to the specified module. -/
+def getBlueprintContents (module : Name) (all : Bool := false) : CoreM (Array BlueprintContent) := do
   let env ← getEnv
   let some modIdx := env.getModuleIdx? module | return #[]
   let nodes ← (blueprintExt.getModuleEntries env modIdx).mapM fun (_, node) => BlueprintContent.node <$> node.toNodeWithPos
+  let autoNodes ← if all then getAutoIncludedNodes modIdx else pure #[]
   let modDocs := (getModuleBlueprintDoc? env module).getD #[] |>.map BlueprintContent.modDoc
-  return (nodes ++ modDocs).qsort BlueprintContent.order
+  return (nodes ++ autoNodes ++ modDocs).qsort BlueprintContent.order
 
 end Architect

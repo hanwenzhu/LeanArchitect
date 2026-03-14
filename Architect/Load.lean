@@ -31,11 +31,11 @@ def runEnvOfImports (imports : Array Name) (options : Options) (x : CoreM α) : 
   Prod.fst <$> x.toIO config { env }
 
 /-- Outputs the blueprint of a module. -/
-def latexOutputOfImportModule (module : Name) (options : Options) : IO LatexOutput :=
-  runEnvOfImports #[module] options (moduleToLatexOutput module)
+def latexOutputOfImportModule (module : Name) (options : Options) (all : Bool := false) : IO LatexOutput :=
+  runEnvOfImports #[module] options (moduleToLatexOutput module all)
 
 /-- Outputs the JSON data for the blueprint of a module. -/
-def jsonOfImportModule (module : Name) (options : Options) : IO Json :=
-  runEnvOfImports #[module] options (moduleToJson module)
+def jsonOfImportModule (module : Name) (options : Options) (all : Bool := false) : IO Json :=
+  runEnvOfImports #[module] options (moduleToJson module all)
 
 end Architect

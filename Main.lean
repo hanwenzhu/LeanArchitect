@@ -19,14 +19,15 @@ def runSingleCmd (p : Parsed) : IO UInt32 := do
   let baseDir := outputBaseDir buildDir
   let module := p.positionalArg! "module" |>.as! String |>.toName
   let isJson := p.hasFlag "json"
+  let all := p.hasFlag "all"
   let options : LeanOptions ← match p.flag? "options" with
     | some o => IO.ofExcept (Json.parse (o.as! String) >>= fromJson?)
     | none => pure (∅ : LeanOptions)
   if isJson then
-    let json ← jsonOfImportModule module options.toOptions
+    let json ← jsonOfImportModule module options.toOptions all
     outputJsonResults baseDir module json
   else
-    let latexOutput ← latexOutputOfImportModule module options.toOptions
+    let latexOutput ← latexOutputOfImportModule module options.toOptions all
     discard <| outputLatexResults baseDir module latexOutput
   return 0
 
@@ -50,6 +51,7 @@ def singleCmd := `[Cli|
 
   FLAGS:
     j, json; "Output JSON instead of LaTeX."
+    a, all; "Include all theorems, definitions, and inductives in the blueprint, even without @[blueprint] attributes."
     b, build : String; "Build directory."
     o, options : String; "LeanOptions in JSON to pass to running the module."
 

@@ -1,0 +1,20 @@
+import ArchitectTest.BlueprintAll.Basic
+
+/-!
+Theorems about `Color.mix`, importing `Basic`. No `@[blueprint]` attributes.
+Tests that `--all` correctly picks up theorems and tracks sorry status.
+-/
+
+set_option warn.sorry false
+
+namespace Color
+
+/-- Mixing is commutative. -/
+theorem mix_comm (a b : Color) : mix a b = mix b a := by
+  cases a <;> cases b <;> rfl
+
+/-- Associativity of mixing (sorry'd to test leanOk detection). -/
+theorem mix_assoc (a b c : Color) : mix (mix a b) c = mix a (mix b c) := by
+  sorry
+
+end Color
