@@ -86,16 +86,20 @@ private def mkDefaultNode (env : Environment) (name : Name) (docString : String 
 
 /-- Get auto-included blueprint nodes for constants in a specific module.
 Only enumerates constants belonging to the given module index — does not
-traverse the full environment. -/
+traverse the full environment. Registers nodes in the blueprint environment
+extensions so that downstream rendering (dependency inference, sorry detection,
+`\lean{}` links) works correctly. -/
 private def getAutoIncludedNodes (modIdx : ModuleIdx) : CoreM (Array BlueprintContent) := do
   let env ← getEnv
   let constNames := env.header.moduleData[modIdx.toNat]!.constNames
   let mut nodes : Array BlueprintContent := #[]
-  let env ← getEnv
   for name in constNames do
     if ← shouldAutoInclude name then
-      let docString := (← findDocString? env name).getD ""
-      let node := mkDefaultNode env name docString
+      let docString := (← findDocString? (← getEnv) name).getD ""
+      let node := mkDefaultNode (← getEnv) name docString
+      -- Register in env extensions so rendering can find these nodes
+      blueprintExt.add name node
+      modifyEnv fun env => addLeanNameOfLatexLabel env node.latexLabel name
       nodes := nodes.push (.node (← node.toNodeWithPos))
   return nodes
 

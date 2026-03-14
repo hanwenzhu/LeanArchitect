@@ -51,14 +51,6 @@ module_facet blueprint (mod : Module) : Unit := do
 module_facet blueprintJson (mod : Module) : Unit := do
   buildModuleBlueprint mod "json" #["--json"]
 
-/-- A facet to extract the blueprint for a module, including all declarations (no `@[blueprint]` needed). -/
-module_facet blueprintAll (mod : Module) : Unit := do
-  buildModuleBlueprint mod "tex" #["--all"]
-
-/-- A facet to extract JSON data of blueprint for a module, including all declarations. -/
-module_facet blueprintAllJson (mod : Module) : Unit := do
-  buildModuleBlueprint mod "json" #["--json", "--all"]
-
 def buildLibraryBlueprint (lib : LeanLib) (moduleFacet : Lean.Name) (ext : String) (extractArgs : Array String) : FetchM (Job Unit) := do
   let mods ← (← lib.modules.fetch).await
   let moduleJobs := Job.collectArray <| ← mods.mapM (fetch <| ·.facet moduleFacet)
