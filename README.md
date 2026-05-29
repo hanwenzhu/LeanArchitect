@@ -247,6 +247,26 @@ A special case is for `to_additive` pairs of theorems:
 
 should produce a single node with `\lean{b_mul, b_add}`.
 
+### Declarations upstreamed to Mathlib
+
+When a result moves to Mathlib, you can no longer edit its source to add `@[blueprint]`. Instead, tag
+it from your own project with the `attribute` command, reusing the original label so the node keeps
+its place in the graph:
+
+```lean
+attribute [blueprint "thm:my-result" (statement := /-- ... -/)] Mathlib.Path.To.my_result
+```
+
+Put this just before the first local node that depends on it, or in the root module if nothing local
+does. Delete the old local copy in the same step.
+
+A node is marked `\mathlibok` whenever all of its declarations resolve to a module under `Mathlib`,
+`Init`, `Std`, `Batteries`, or `Lean`. This is read off the environment, not maintained by hand, so
+the "already in Mathlib" status stays correct after every bump.
+
+`blueprintConvert` applies the same rule during conversion: nodes imported from another project are
+emitted as `attribute [blueprint] node_name` rather than a new `@[blueprint]` definition.
+
 ### Weird highlight in VS Code
 
 If you notice the syntax highlighting makes entire blocks of Lean code a wrong color, it is likely that somewhere in a LaTeX comment there is something like `<a` which is parsed by VS Code as an HTML tag. Simply change it to `< a` and the highlights should then be fixed.
