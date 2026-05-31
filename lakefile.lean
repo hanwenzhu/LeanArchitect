@@ -22,10 +22,10 @@ lean_exe add_position_info where
   supportInterpreter := true
 
 require batteries from git
-  "https://github.com/leanprover-community/batteries" @ "v4.30.0-rc2"
+  "https://github.com/leanprover-community/batteries" @ "v4.30.0"
 
 require Cli from git
-  "https://github.com/mhuisi/lean4-cli" @ "v4.30.0-rc2"
+  "https://github.com/mhuisi/lean4-cli" @ "v4.30.0"
 
 def buildModuleBlueprint (mod : Module) (ext : String) (extractArgs : Array String) : FetchM (Job Unit) := do
   let exeJob ← extract_blueprint.fetch
