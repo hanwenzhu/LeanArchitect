@@ -39,15 +39,19 @@ def BlueprintContent.order (l r : BlueprintContent) : Bool :=
 /-- Get blueprint contents of the current module. -/
 def getMainModuleBlueprintContents : CoreM (Array BlueprintContent) := do
   let env ← getEnv
-  let nodes ← (blueprintExt.getEntries env).toArray.mapM fun (_, node) => BlueprintContent.node <$> node.toNodeWithPos
+  let opts ← getOptions
+  let nodes ← (getLocalBlueprintNodes env opts).mapM fun (_, node) => BlueprintContent.node <$> node.toNodeWithPos
   let modDocs := (getMainModuleBlueprintDoc env).toArray.map BlueprintContent.modDoc
   return (nodes ++ modDocs).qsort BlueprintContent.order
 
-/-- Get blueprint contents of an imported module. -/
+/-- Get blueprint contents of an imported module. When `blueprint.all` is set, auto-nodes for the
+module's own declarations are included (this is the path used by `lake build :blueprint`). -/
 def getBlueprintContents (module : Name) : CoreM (Array BlueprintContent) := do
   let env ← getEnv
+  let opts ← getOptions
   let some modIdx := env.getModuleIdx? module | return #[]
-  let nodes ← (blueprintExt.getModuleEntries env modIdx).mapM fun (_, node) => BlueprintContent.node <$> node.toNodeWithPos
+  let allNodes := getModuleBlueprintNodes env opts modIdx ++ getModuleAutoBlueprintNodes env opts modIdx
+  let nodes ← allNodes.mapM fun (_, node) => BlueprintContent.node <$> node.toNodeWithPos
   let modDocs := (getModuleBlueprintDoc? env module).getD #[] |>.map BlueprintContent.modDoc
   return (nodes ++ modDocs).qsort BlueprintContent.order
 
