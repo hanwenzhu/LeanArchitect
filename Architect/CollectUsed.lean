@@ -17,6 +17,7 @@ namespace CollectUsed
 
 structure Context where
   env : Environment
+  opts : Options
   root : Name
 
 structure State where
@@ -30,9 +31,9 @@ partial def collect (c : Name) : M Unit := do
   let s ← get
   unless s.visited.contains c do
     modify fun s => { s with visited := s.visited.insert c }
-    let { env, root } ← read
+    let { env, opts, root } ← read
     -- When we collect constants used by `a`, we don't just want to return `{a}`.
-    if c != root && (blueprintExt.find? env c).isSome then
+    if c != root && isBlueprintNode env opts c then
       modify fun s => { s with used := s.used.push c }
     else
       -- This line is `match env.checked.get.find? c with` in Lean.CollectAxioms
@@ -54,19 +55,20 @@ Returns the irreflexive transitive set of blueprint nodes that a constant depend
 as a pair of sets (constants used by type, constants used by value).
 They are made disjoint except that possibly both contain `sorryAx`.
 -/
-def collectUsed [Monad m] [MonadEnv m] [MonadError m] (constName : Name) :
+def collectUsed [Monad m] [MonadEnv m] [MonadError m] [MonadOptions m] (constName : Name) :
     m (NameSet × NameSet) := do
   let env ← getEnv
+  let opts ← getOptions
   let mut s : CollectUsed.State := {}
 
   -- Collect constants used by statement
   let info ← getConstInfo constName
   for c in info.type.getUsedConstants do
-    (_, s) := ((CollectUsed.collect c).run { env, root := constName }).run s
+    (_, s) := ((CollectUsed.collect c).run { env, opts, root := constName }).run s
   let typeUsed := NameSet.ofArray s.used
 
   -- Collect constants used by proof
-  (_, s) := ((CollectUsed.collect constName).run { env, root := constName }).run s
+  (_, s) := ((CollectUsed.collect constName).run { env, opts, root := constName }).run s
   let valueUsed := NameSet.ofArray s.used
 
   return (typeUsed, valueUsed \ typeUsed.erase ``sorryAx)
