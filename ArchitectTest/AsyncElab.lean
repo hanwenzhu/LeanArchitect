@@ -30,7 +30,8 @@ def new := now_ms%
 open Lean Architect in
 run_meta
   -- Running a, b, c should be all parallel and hence the time should be ≈1s and ≪2s
-  assert! new - old < 1100
+  unless new - old < 1100 do
+    throwError "a, b, c were not elaborated in parallel: new - old = {new - old} ms (expected < 1100 ms)"
   assert! getProofDocString (← getEnv) ``a == "a"
   assert! getProofDocString (← getEnv) ``b == "b"
   assert! getProofDocString (← getEnv) ``c == "c"
