@@ -216,6 +216,225 @@ so that the `\input` line above works. Here are some typical examples for doing 
           build-args: :blueprint
 ```
 
+## Auto-blueprinting
+
+By default, each declaration must be tagged with `@[blueprint]` to appear in the blueprint. To automatically include all declarations with docstrings, set `blueprint.all`:
+
+```lean
+set_option blueprint.all true
+
+/-- Natural number addition. -/
+def add (a b : Nat) : Nat := ...          -- auto-blueprinted
+
+/-- Commutativity of addition. -/
+theorem add_comm : add a b = add b a := ...  -- auto-blueprinted
+
+theorem helper : ... := ...               -- NOT included (no docstring)
+```
+
+The statement text comes from the docstring, dependencies are auto-inferred, and the LaTeX environment is determined by the declaration kind (theorem → `theorem`, def/inductive → `definition`).
+
+To override specific options for a declaration, add `@[blueprint ...]` explicitly — it takes precedence over auto-mode. An explicit `@[blueprint]` with no `statement := ...` also uses the declaration's docstring as its statement:
+
+```lean
+/-- Fermat's last theorem. -/
+@[blueprint (title := "Taylor-Wiles") (notReady := true)]
+theorem flt : ... := ...
+```
+
+### Enabling `blueprint.all` for the generated blueprint
+
+`set_option blueprint.all true` written inside a `.lean` file only affects that file *interactively* (e.g. `#blueprint_progress`); it is not visible to `lake build :blueprint`, which runs as a separate process. To auto-blueprint a library in the generated blueprint, set the option in your `lakefile`'s `leanOptions` instead (this also drives the interactive commands, so you don't need the `set_option` line):
+
+```lean
+-- lakefile.lean
+lean_lib MyProject where
+  leanOptions := #[⟨`blueprint.all, true⟩]
+```
+
+```toml
+# lakefile.toml
+[[lean_lib]]
+name = "MyProject"
+leanOptions = [{ name = "blueprint.all", value = true }]
+```
+
+Note: `blueprint.all` only auto-blueprints the modules it is applied to; declarations from imported libraries (e.g. Mathlib) are never auto-blueprinted.
+
+### Customizing the LaTeX environment
+
+Auto-mode picks the LaTeX environment from the kernel-level kind of the declaration: theorem-kind → `\begin{theorem}`, def/inductive/opaque → `\begin{definition}`. Lean does not preserve the surface keyword across macro expansion — for example, Mathlib's `lemma` is a macro that desugars to `theorem` before LeanArchitect sees it, so auto-mode can't tell `lemma foo` apart from `theorem foo` and renders both as `\begin{theorem}`. Two ways to control this:
+
+**Per-declaration override.** Explicit `@[blueprint ...]` takes precedence over auto-mode, so you can selectively pick a different environment:
+
+```lean
+@[blueprint (latexEnv := "lemma")]
+lemma mul_one (a : G) : a * 1 = a := …
+```
+
+**Project-side `macro_rules`.** To avoid tagging each declaration, drop a small file into your project — e.g. `MyProject/Blueprint.lean` — that redirects the surface keyword so it carries the attribute automatically. Mathlib's `lemma` syntax has a single `declModifiers` slot that already includes the attribute position, so the simplest correct shape captures the optional `docComment` separately and lets the RHS attribute land in the rewritten `theorem`'s own modifiers:
+
+```lean
+-- MyProject/Blueprint.lean
+/-
+  Route Mathlib's `lemma` keyword to `\begin{lemma}` in the published
+  blueprint. Without this, auto-mode sees only the kernel-level
+  declaration kind (theorem-kind for `lemma`) and renders both
+  `theorem foo` and `lemma foo` as `\begin{theorem}`.
+-/
+
+import Architect
+import Mathlib.Tactic.Lemma
+
+macro_rules
+  | `(command| $[$doc:docComment]? lemma $id:declId $sig:declSig $val:declVal) =>
+    `(command| $[$doc:docComment]? @[blueprint (latexEnv := "lemma")]
+        theorem $id:declId $sig:declSig $val:declVal)
+```
+
+Then `import MyProject.Blueprint` at the top of any file where you write lemmas. After that, `lemma foo : … := …` and `/-- … -/ lemma foo : … := …` render as `\begin{lemma}` under `blueprint.all` with no per-declaration tags. Apply the same shape to `proposition`/`corollary` (or any other keyword you define) as needed. This recipe is intentionally kept project-side: the right keyword set is opinionated and the recipe avoids coupling LeanArchitect to Mathlib's surface syntax.
+
+**Scope.** The recipe above covers bare and docstring'd lemmas — the typical blueprint case. It does *not* match lemmas with other modifiers (`private`, `noncomputable`, a pre-existing `@[…]`); for those, fall back to the per-declaration override.
+
+## Progress statistics
+
+To view formalization progress, use the `#blueprint_progress` command in Lean:
+
+```lean
+#blueprint_progress
+-- Blueprint Progress
+-- ────────────────────────
+-- Total:           10 nodes
+-- Formalized:    5/10  (50%)
+-- Incomplete:    4/10  (40%)
+-- Not ready:     1/10  (10%)
+--
+-- By module:
+--   MyProject.Algebra   3/8  (38%)
+--   MyProject.Topology  1/1  (100%)
+--   MyProject.Main      1/1  (100%)
+```
+
+The command aggregates all blueprint nodes from the current module and its imports, with a per-module breakdown. Place it in a root file that imports the full project to get project-wide statistics. Variants:
+
+- `#blueprint_progress` — project-wide with per-module breakdown.
+- `#blueprint_progress nobreakdown` — project-wide without breakdown.
+- `#blueprint_progress local` — current module only, with breakdown.
+- `#blueprint_progress local nobreakdown` — current module only, without breakdown.
+
+Or from the command line, passing one or more modules:
+
+```sh
+lake exe extract_blueprint progress MyProject.Module1 MyProject.Module2
+```
+
+Nodes are categorized into three mutually exclusive groups:
+- **Formalized**: `sorry`-free, formalization complete.
+- **Incomplete**: contains `sorry`, work in progress.
+- **Not ready**: marked with `(notReady := true)`, not yet actionable.
+
+## Node status
+
+To inspect a specific declaration and its dependency subtree, use `#blueprint_status`:
+
+```lean
+#blueprint_status MyProject.add_comm
+-- MyProject.add_comm
+-- Status: Incomplete
+--
+-- Dependencies (3 nodes):
+--   Formalized:   1/3  (33%)
+--   Incomplete:   2/3  (67%)
+--   Not ready:    0/3   (0%)
+--
+-- Blocking (2 nodes):
+--   MyProject.succ_add  1/2  (50%)  Incomplete
+--   MyProject.mul       0/1   (0%)  Incomplete
+```
+
+Or from the command line:
+
+```sh
+lake exe extract_blueprint status MyProject.add_comm MyProject.Module1
+```
+
+This works on any `@[blueprint]`-tagged declaration — theorems, lemmas, definitions, and inductives. The output shows:
+
+- **Status**: the node's own formalization status.
+- **Dependencies**: aggregate statistics for all transitive blueprint dependencies.
+- **Blocking**: the subset of dependencies that are not yet formalized, sorted with not-ready nodes first.
+
+If the node has no blueprint dependencies, the output shows `No dependencies.` instead.
+
+Or from the command line:
+
+```sh
+lake exe extract_blueprint status MyProject.add_comm MyProject.Module1
+```
+
+The first argument is the fully qualified Lean name; the remaining arguments are the modules to load (the declaration must be reachable from these modules).
+
+## Incomplete nodes
+
+To see all incomplete nodes and how close they are to being unblocked, use `#blueprint_incomplete`:
+
+```lean
+#blueprint_incomplete
+-- Incomplete (4 nodes):
+--   MyProject.mul       0/0  (100%)
+--   MyProject.succ_add  2/2  (100%)
+--   MyProject.add_comm  3/4   (75%)
+--   MyProject.mul_comm  1/2   (50%)
+```
+
+Each node shows how many of its blueprint dependencies are formalized. Nodes at **100%** are ready to work on immediately — all their dependencies are done. Nodes marked `(notReady := true)` are excluded.
+
+Variants:
+
+- `#blueprint_incomplete` — search all modules.
+- `#blueprint_incomplete local` — search the current module only.
+
+Or from the command line:
+
+```sh
+lake exe extract_blueprint incomplete MyProject.Module1 MyProject.Module2
+```
+
+### Impact analysis
+
+To see the reverse dependencies of a node — which nodes depend on it and which would be unblocked by formalizing it — use `#blueprint_impact`:
+
+```lean
+#blueprint_impact MyProject.succ_add
+```
+
+Example output:
+
+```
+MyProject.succ_add
+Status: Incomplete
+
+Depended on by (2 nodes):
+  MyProject.add_comm  3/4  (75%)  Incomplete
+  MyProject.flt       0/2   (0%)  Not ready
+
+Would unblock (1 node):
+  MyProject.add_comm  3/4  (75%)  Incomplete
+```
+
+"Would unblock" lists incomplete nodes whose *only* remaining blocking dependency is the target node. Formalizing the target would make these nodes fully actionable (100% dependency completion in `#blueprint_incomplete`).
+
+Variants:
+
+- `#blueprint_impact name` — search all modules.
+- `#blueprint_impact name local` — search the current module only.
+
+Or from the command line:
+
+```sh
+lake exe extract_blueprint impact MyProject.succ_add MyProject.Module1 MyProject.Module2
+```
+
 ## Extracting nodes in JSON
 
 To extract the blueprint nodes in machine-readable format, run:

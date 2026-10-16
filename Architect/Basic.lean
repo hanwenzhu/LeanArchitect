@@ -127,4 +127,91 @@ end ResolveConst
 /-- TODO: remove after lean4#12469 -/
 scoped instance {α} [Inhabited α] : Inhabited (Thunk α) := ⟨.mk default⟩
 
+section AutoBlueprint
+
+register_option blueprint.all : Bool := {
+  defValue := false,
+  descr := "Automatically add all declarations with docstrings to the blueprint."
+}
+
+/-- The module-name prefixes considered to be "libraries" (the standard library, Mathlib, etc.)
+rather than the project being blueprinted. -/
+def libraryModulePrefixes : List Name := [`Init, `Lean, `Std, `Batteries, `Mathlib]
+
+/-- Whether `name` comes from a library module (see `libraryModulePrefixes`), as opposed to the
+project being blueprinted. Declarations from the current file return `false`. -/
+def isLibraryDecl (env : Environment) (name : Name) : Bool :=
+  match env.getModuleIdxFor? name with
+  | some idx => libraryModulePrefixes.any (·.isPrefixOf env.allImportedModuleNames[idx]!)
+  | none => false
+
+/-- Whether a constant is eligible for auto-blueprinting:
+a "real" declaration (theorem, def, opaque, or inductive) that is not auxiliary. -/
+private def isAutoEligible (env : Environment) (name : Name) : Bool :=
+  if name.isInternalDetail then false
+  else match env.find? name with
+    | some (.thmInfo _) | some (.defnInfo _) | some (.opaqueInfo _) | some (.inductInfo _) => true
+    | _ => false
+
+/-- Create an auto-node from a constant's docstring. Returns `none` if ineligible. -/
+def mkAutoNode (env : Environment) (name : Name) : Option Node :=
+  if !isAutoEligible env name then none
+  else if isLibraryDecl env name then none  -- imports (Mathlib etc.) are never auto-blueprinted
+  else if (blueprintExt.find? env name).isSome then none  -- already explicitly tagged
+  else match docStringExt.find? env name with
+    | none => none  -- no docstring
+    | some doc =>
+      let isThm := wasOriginallyTheorem env name
+      let statement : NodePart := {
+        text := doc.trimAscii.copy
+        uses := #[], excludes := #[], usesLabels := #[], excludesLabels := #[]
+        latexEnv := if isThm then "theorem" else "definition"
+      }
+      let proof : Option NodePart := if isThm then some {
+        text := "", uses := #[], excludes := #[], usesLabels := #[], excludesLabels := #[]
+        latexEnv := "proof"
+      } else none
+      some { name, latexLabel := name.toString, statement, proof, notReady := false
+             discussion := none, title := none }
+
+/-- Look up a blueprint node, falling back to auto-node creation when `blueprint.all` is set. -/
+def findBlueprintNode? (env : Environment) (opts : Options) (name : Name) : Option Node :=
+  (blueprintExt.find? env name).orElse fun () =>
+    if blueprint.all.get opts then mkAutoNode env name else none
+
+/-- Check if a name is a blueprint node (explicit or auto). -/
+def isBlueprintNode (env : Environment) (opts : Options) (name : Name) : Bool :=
+  (findBlueprintNode? env opts name).isSome
+
+/-- Collect auto-nodes (from `blueprint.all`) for all constants in `env` satisfying `keep`. -/
+private def collectAutoNodes (env : Environment) (keep : Name → Bool) : Array (Name × Node) :=
+  env.constants.fold (init := #[]) fun acc name _ =>
+    if keep name then
+      match mkAutoNode env name with
+      | some node => acc.push (name, node)
+      | none => acc
+    else acc
+
+/-- Get all explicit (`@[blueprint]`) nodes from an imported module. -/
+def getModuleBlueprintNodes (env : Environment) (_opts : Options) (modIdx : ModuleIdx) :
+    Array (Name × Node) :=
+  blueprintExt.getModuleEntries env modIdx
+
+/-- Get auto-nodes (from `blueprint.all`) for an imported module. Returns `#[]` unless `blueprint.all`
+is set in `opts`. This is only used when extracting that module's own blueprint — `blueprint.all` is
+otherwise scoped to the current file, so e.g. `#blueprint_progress` does not auto-blueprint imports. -/
+def getModuleAutoBlueprintNodes (env : Environment) (opts : Options) (modIdx : ModuleIdx) :
+    Array (Name × Node) :=
+  if !blueprint.all.get opts then #[]
+  else collectAutoNodes env fun name => (env.getModuleIdxFor? name).any (·.toNat == modIdx.toNat)
+
+/-- Get all blueprint nodes from the current file (not yet imported), including auto-nodes. -/
+def getLocalBlueprintNodes (env : Environment) (opts : Options) : Array (Name × Node) :=
+  let explicit := (blueprintExt.getEntries env).toArray
+  if !blueprint.all.get opts then explicit
+  -- Auto-nodes: constants in `env` but not in any imported module (i.e. from the current file)
+  else explicit ++ collectAutoNodes env fun name => (env.getModuleIdxFor? name).isNone
+
+end AutoBlueprint
+
 end Architect

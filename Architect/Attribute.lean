@@ -161,9 +161,14 @@ def elabBlueprintConfig : Syntax → CoreM Config
 def hasProof (name : Name) (cfg : Config) : CoreM Bool := do
   return cfg.hasProof.getD (cfg.proof.isSome || wasOriginallyTheorem (← getEnv) name)
 
-def mkStatementPart (_name : Name) (cfg : Config) (hasProof : Bool) : CoreM NodePart := do
+def mkStatementPart (name : Name) (cfg : Config) (hasProof : Bool) : CoreM NodePart := do
+  -- If no explicit `statement := ...` is given, fall back to the declaration's docstring,
+  -- consistent with auto-mode (`blueprint.all`).
+  let text ← match cfg.statement with
+    | some s => pure s
+    | none => pure <| (docStringExt.find? (← getEnv) name).getD "" |>.trimAscii.copy
   return {
-    text := cfg.statement.getD "",
+    text,
     uses := cfg.uses, excludes := cfg.excludes,
     usesLabels := cfg.usesLabels, excludesLabels := cfg.excludesLabels,
     latexEnv := cfg.latexEnv.getD (if hasProof then "theorem" else "definition")
