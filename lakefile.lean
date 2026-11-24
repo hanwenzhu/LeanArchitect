@@ -29,7 +29,7 @@ require Cli from git
 
 def buildModuleBlueprint (mod : Module) (ext : String) (extractArgs : Array String) : FetchM (Job Unit) := do
   let exeJob ← extract_blueprint.fetch
-  let modJob ← mod.leanArts.fetch
+  let modJob ← mod.elabArts.fetch
   let buildDir := (← getRootPackage).buildDir
   let mainFile := mod.filePath (buildDir / "blueprint" / "module") ext
   let leanOptions := Lean.toJson mod.leanOptions |>.compress
